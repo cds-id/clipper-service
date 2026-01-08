@@ -165,17 +165,12 @@ class FFmpegService:
         words_per_line: int = 6
     ) -> str:
         """
-        Generate clipper-style ASS subtitles with word-by-word highlighting.
-        Uses layered approach to prevent flickering:
-        - Layer 0: Base text (always visible for entire phrase)
-        - Layer 1: Highlight overlay (current word only)
+        Generate clipper-style ASS subtitles with word-by-word color change.
+        Simple approach: full phrase visible, current word changes color.
         """
         colors = CAPTION_STYLES.get(style, CAPTION_STYLES["default"])
-
-        # Calculate font size based on video resolution (responsive)
         base_font_size = max(int(video_height * 0.07), 42)
 
-        # ASS header
         ass_content = f"""[Script Info]
 Title: Clipper Style Captions
 ScriptType: v4.00+
@@ -186,8 +181,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Base,Arial Black,{base_font_size},{colors['primary']},{colors['primary']},{colors['outline']},{colors['shadow']},-1,0,0,0,100,100,0,0,1,4,2,2,20,20,50,1
-Style: Highlight,Arial Black,{base_font_size},{colors['highlight']},{colors['highlight']},{colors['outline']},&H00000000,-1,0,0,0,115,115,0,0,1,4,0,2,20,20,50,1
+Style: Default,Arial Black,{base_font_size},{colors['primary']},{colors['highlight']},{colors['outline']},{colors['shadow']},-1,0,0,0,100,100,0,0,1,4,2,2,20,20,50,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -203,42 +197,33 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             phrase_start = max(0, phrase[0].start - offset)
             phrase_end = phrase[-1].end - offset
 
-            # Build full phrase text (all words)
-            full_phrase = " ".join([w.word.upper() for w in phrase])
-
-            # Layer 0: Base text - visible for ENTIRE phrase duration (no flicker)
-            ass_content += (
-                f"Dialogue: 0,"
-                f"{format_ass_timestamp(phrase_start)},"
-                f"{format_ass_timestamp(phrase_end)},"
-                f"Base,,0,0,0,,"
-                f"{full_phrase}\n"
-            )
-
-            # Layer 1: Highlight overlay for each word
+            # For each word, show full phrase with current word highlighted
             for word_idx, current_word in enumerate(phrase):
                 word_start = max(0, current_word.start - offset)
-                word_end = current_word.end - offset
 
-                # Calculate position offset for the highlighted word
-                # Build text with transparent placeholders for non-current words
-                highlight_parts = []
+                # End time: use next word start or phrase end (no gaps)
+                if word_idx < len(phrase) - 1:
+                    word_end = max(0, phrase[word_idx + 1].start - offset)
+                else:
+                    word_end = phrase_end
+
+                # Build phrase with current word in highlight color
+                parts = []
                 for idx, w in enumerate(phrase):
                     if idx == word_idx:
-                        # Current word - visible highlight
-                        highlight_parts.append(w.word.upper())
+                        # Current word - highlight color
+                        parts.append(f"{{\\c{colors['highlight']}}}{w.word.upper()}{{\\c{colors['primary']}}}")
                     else:
-                        # Other words - invisible (transparent)
-                        highlight_parts.append(f"{{\\alpha&HFF&}}{w.word.upper()}{{\\alpha&H00&}}")
+                        parts.append(w.word.upper())
 
-                highlight_text = " ".join(highlight_parts)
+                text = " ".join(parts)
 
                 ass_content += (
-                    f"Dialogue: 1,"
+                    f"Dialogue: 0,"
                     f"{format_ass_timestamp(word_start)},"
                     f"{format_ass_timestamp(word_end)},"
-                    f"Highlight,,0,0,0,,"
-                    f"{highlight_text}\n"
+                    f"Default,,0,0,0,,"
+                    f"{text}\n"
                 )
 
         return ass_content
