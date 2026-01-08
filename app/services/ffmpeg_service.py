@@ -166,20 +166,16 @@ class FFmpegService:
     ) -> str:
         """
         Generate clipper-style ASS subtitles with word-by-word highlighting.
-
-        Features:
-        - Shows full phrase while highlighting current word
-        - Large, bold centered text
-        - Word-by-word highlight animation (current word in different color/size)
-        - Previous words remain visible
-        - Modern styling with outlines and shadows
+        Uses layered approach to prevent flickering:
+        - Layer 0: Base text (always visible for entire phrase)
+        - Layer 1: Highlight overlay (current word only)
         """
         colors = CAPTION_STYLES.get(style, CAPTION_STYLES["default"])
 
         # Calculate font size based on video resolution (responsive)
-        base_font_size = max(int(video_height * 0.07), 42)  # 7% of height, min 42
+        base_font_size = max(int(video_height * 0.07), 42)
 
-        # ASS header with clipper-style formatting
+        # ASS header
         ass_content = f"""[Script Info]
 Title: Clipper Style Captions
 ScriptType: v4.00+
@@ -190,7 +186,8 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial Black,{base_font_size},{colors['primary']},{colors['highlight']},{colors['outline']},{colors['shadow']},-1,0,0,0,100,100,0,0,1,4,2,2,20,20,50,1
+Style: Base,Arial Black,{base_font_size},{colors['primary']},{colors['primary']},{colors['outline']},{colors['shadow']},-1,0,0,0,100,100,0,0,1,4,2,2,20,20,50,1
+Style: Highlight,Arial Black,{base_font_size},{colors['highlight']},{colors['highlight']},{colors['outline']},&H00000000,-1,0,0,0,115,115,0,0,1,4,0,2,20,20,50,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -202,40 +199,46 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         # Split into natural phrases
         phrases = self._split_into_phrases(words, max_words=words_per_line)
 
-        # Generate dialogue lines - show full phrase with current word highlighted
         for phrase in phrases:
-            # For each word in the phrase, create a frame showing full phrase
+            phrase_start = max(0, phrase[0].start - offset)
+            phrase_end = phrase[-1].end - offset
+
+            # Build full phrase text (all words)
+            full_phrase = " ".join([w.word.upper() for w in phrase])
+
+            # Layer 0: Base text - visible for ENTIRE phrase duration (no flicker)
+            ass_content += (
+                f"Dialogue: 0,"
+                f"{format_ass_timestamp(phrase_start)},"
+                f"{format_ass_timestamp(phrase_end)},"
+                f"Base,,0,0,0,,"
+                f"{full_phrase}\n"
+            )
+
+            # Layer 1: Highlight overlay for each word
             for word_idx, current_word in enumerate(phrase):
                 word_start = max(0, current_word.start - offset)
                 word_end = current_word.end - offset
 
-                # Build the full phrase with current word highlighted
-                line_parts = []
+                # Calculate position offset for the highlighted word
+                # Build text with transparent placeholders for non-current words
+                highlight_parts = []
                 for idx, w in enumerate(phrase):
                     if idx == word_idx:
-                        # Current word - highlighted with color and scale
-                        line_parts.append(
-                            f"{{\\c{colors['highlight']}\\fscx115\\fscy115}}"
-                            f"{w.word.upper()}"
-                            f"{{\\c{colors['primary']}\\fscx100\\fscy100}}"
-                        )
-                    elif idx < word_idx:
-                        # Previous words - shown normally (already spoken)
-                        line_parts.append(w.word.upper())
+                        # Current word - visible highlight
+                        highlight_parts.append(w.word.upper())
                     else:
-                        # Future words - slightly dimmed
-                        line_parts.append(
-                            f"{{\\alpha&H40&}}{w.word.upper()}{{\\alpha&H00&}}"
-                        )
+                        # Other words - invisible (transparent)
+                        highlight_parts.append(f"{{\\alpha&HFF&}}{w.word.upper()}{{\\alpha&H00&}}")
 
-                text = " ".join(line_parts)
+                highlight_text = " ".join(highlight_parts)
 
                 ass_content += (
-                    f"Dialogue: 0,"
+                    f"Dialogue: 1,"
                     f"{format_ass_timestamp(word_start)},"
                     f"{format_ass_timestamp(word_end)},"
-                    f"Default,,0,0,0,,"
-                    f"{text}\n"
+                    f"Highlight,,0,0,0,,"
+                    f"{highlight_text}\n"
                 )
 
         return ass_content
