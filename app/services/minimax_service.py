@@ -52,17 +52,30 @@ class MinimaxService:
             }
         }
 
-        response = requests.post(
-            self.api_url,
-            headers=headers,
-            json=payload,
-            timeout=300  # 5 minute timeout for music generation
-        )
-        response.raise_for_status()
+        try:
+            response = requests.post(
+                self.api_url,
+                headers=headers,
+                json=payload,
+                timeout=300  # 5 minute timeout for music generation
+            )
+            response.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            error_detail = response.text if response else str(e)
+            raise ValueError(f"MiniMax API error: {response.status_code} - {error_detail}")
 
-        data = response.json()
-        if "data" not in data or "audio" not in data["data"]:
-            raise ValueError(f"Invalid response from MiniMax: {data}")
+        try:
+            data = response.json()
+        except Exception:
+            raise ValueError(f"Invalid JSON response from MiniMax: {response.text[:500]}")
+
+        if not data or not isinstance(data, dict):
+            raise ValueError(f"Invalid response format from MiniMax: {data}")
+
+        if "data" not in data or not data.get("data") or "audio" not in data.get("data", {}):
+            # Check for error message in response
+            error_msg = data.get("base_resp", {}).get("status_msg", str(data))
+            raise ValueError(f"MiniMax API error: {error_msg}")
 
         audio_hex = data["data"]["audio"]
 
