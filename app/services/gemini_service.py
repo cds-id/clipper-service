@@ -98,5 +98,52 @@ Return ONLY the JSON array, no other text."""
                 return [KeyPoint(**kp) for kp in key_points_data]
             raise ValueError("Failed to parse Gemini response as JSON")
 
+    async def generate_music_prompt(
+        self,
+        title: str,
+        summary: str,
+        importance: int
+    ) -> str:
+        """
+        Generate a music style description for MiniMax based on clip content.
+
+        Args:
+            title: Clip title
+            summary: Clip summary/context
+            importance: Importance score (1-10) indicating energy level
+
+        Returns:
+            Music style description prompt for MiniMax
+        """
+        client = self._get_client()
+
+        prompt = f"""Generate a music style description for background instrumental music.
+
+Clip Title: "{title}"
+Context: {summary}
+Energy Level: {importance}/10
+
+Create a single paragraph (100-150 words) describing:
+- Genre/style (electronic, ambient, cinematic, orchestral, lo-fi, upbeat pop, etc.)
+- Mood and atmosphere (energetic, calm, dramatic, inspiring, mysterious, etc.)
+- Key instruments (synths, piano, strings, drums, bass, etc.)
+- Tempo indication (slow ~60-80 BPM, moderate ~90-120 BPM, fast ~130+ BPM)
+- Production style (modern, polished, minimalist, layered, etc.)
+
+The music should be instrumental only (no vocals) and suitable as background music that enhances the video without overpowering speech.
+
+Return ONLY the music description paragraph, no other text."""
+
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.8,
+                max_output_tokens=500,
+            )
+        )
+
+        return response.text.strip()
+
 
 gemini_service = GeminiService()

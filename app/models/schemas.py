@@ -12,6 +12,8 @@ class JobStatus(str, Enum):
     ANALYZING = "analyzing"
     TRIMMING = "trimming"
     ADDING_CAPTIONS = "adding_captions"
+    GENERATING_MUSIC = "generating_music"
+    MIXING_AUDIO = "mixing_audio"
     COMPLETED = "completed"
     FAILED = "failed"
 
@@ -56,6 +58,7 @@ class ClipResult(BaseModel):
     key_point: KeyPoint
     clip_path: str
     captioned_clip_path: str
+    music_clip_path: str | None = None
 
 
 class ProcessingResult(BaseModel):
@@ -91,6 +94,10 @@ class ProcessRequest(BaseModel):
         default="clipper",
         description="Caption mode: clipper (word highlight) or karaoke (smooth fill)"
     )
+    add_background_music: bool = Field(
+        default=False,
+        description="Add AI-generated background music using MiniMax"
+    )
 
 
 class HealthResponse(BaseModel):
@@ -112,6 +119,10 @@ class ProcessUrlRequest(BaseModel):
     caption_mode: str = Field(
         default="clipper",
         description="Caption mode: clipper (word highlight) or karaoke (smooth fill)"
+    )
+    add_background_music: bool = Field(
+        default=False,
+        description="Add AI-generated background music using MiniMax"
     )
 
 

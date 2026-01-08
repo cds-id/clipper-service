@@ -52,7 +52,8 @@ class DownloadService:
         output_file = output_path / f"{job_id}.mp4"
 
         ydl_opts = {
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            # Limit to 480p max to reduce file size and processing time
+            'format': 'bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[height<=480][ext=mp4]/best[height<=480]/best',
             'outtmpl': str(output_file),
             'merge_output_format': 'mp4',
             'quiet': True,
@@ -109,7 +110,8 @@ class DownloadService:
         output_template = str(output_path / f"{job_id}.%(ext)s")
 
         ydl_opts = {
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            # Limit to 480p max to reduce file size and processing time
+            'format': 'bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[height<=480][ext=mp4]/best[height<=480]/best',
             'outtmpl': output_template,
             'merge_output_format': 'mp4',
             'quiet': True,

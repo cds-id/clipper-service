@@ -391,5 +391,71 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         return output_file
 
+    async def mix_audio(
+        self,
+        video_path: Path,
+        music_path: Path,
+        output_path: Path,
+        clip_name: str,
+        music_volume: float = 0.3
+    ) -> Path:
+        """
+        Mix background music with video's original audio.
+
+        Args:
+            video_path: Input video file with original audio
+            music_path: Generated background music file (MP3)
+            output_path: Directory for output
+            clip_name: Name for output file
+            music_volume: Volume level for background music (0-1)
+
+        Returns:
+            Path to the output video with mixed audio
+        """
+        output_file = output_path / f"{clip_name}_with_music.mp4"
+
+        # Try GPU encoding first
+        cmd = [
+            self.ffmpeg_path,
+            "-i", str(video_path),
+            "-i", str(music_path),
+            "-filter_complex",
+            f"[1:a]volume={music_volume},apad[music];"
+            f"[0:a][music]amix=inputs=2:duration=first:dropout_transition=2[a]",
+            "-map", "0:v",
+            "-map", "[a]",
+            "-c:v", "h264_nvenc",
+            "-preset", "p4",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-y",
+            str(output_file)
+        ]
+
+        result = subprocess.run(cmd, capture_output=True)
+
+        # Fallback to CPU if GPU fails
+        if result.returncode != 0:
+            cmd = [
+                self.ffmpeg_path,
+                "-i", str(video_path),
+                "-i", str(music_path),
+                "-filter_complex",
+                f"[1:a]volume={music_volume},apad[music];"
+                f"[0:a][music]amix=inputs=2:duration=first:dropout_transition=2[a]",
+                "-map", "0:v",
+                "-map", "[a]",
+                "-c:v", "libx264",
+                "-preset", "fast",
+                "-crf", "20",
+                "-c:a", "aac",
+                "-b:a", "192k",
+                "-y",
+                str(output_file)
+            ]
+            subprocess.run(cmd, capture_output=True, check=True)
+
+        return output_file
+
 
 ffmpeg_service = FFmpegService()

@@ -3,12 +3,15 @@ from pathlib import Path
 from datetime import datetime
 from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Form
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 from app.models.schemas import (
     JobResponse, JobStatus, ProcessRequest, HealthResponse,
     ProcessUrlRequest, VideoInfoResponse
 )
 from app.services.processor import video_processor
 from app.services.download_service import download_service
+from app.services.minimax_service import minimax_service
+from app.services.gemini_service import gemini_service
 from app.utils.helpers import (
     generate_job_id, get_file_extension, save_job_status, load_job_status
 )
@@ -28,6 +31,84 @@ async def health_check():
     )
 
 
+class MusicTestRequest(BaseModel):
+    prompt: str = Field(..., description="Music style description (genre, mood, tempo, instruments)")
+    title: str | None = Field(None, description="Optional: clip title for auto-generating prompt via Gemini")
+    summary: str | None = Field(None, description="Optional: clip summary for auto-generating prompt")
+    importance: int = Field(default=5, ge=1, le=10, description="Energy level 1-10 for auto-prompt")
+
+
+class MusicTestResponse(BaseModel):
+    music_url: str
+    prompt_used: str
+    filename: str
+
+
+@router.post("/test-music", response_model=MusicTestResponse)
+async def test_music_generation(request: MusicTestRequest):
+    """
+    Test endpoint for MiniMax Music 2.0 generation.
+
+    You can either:
+    1. Provide a direct `prompt` with music style description
+    2. Provide `title` + `summary` + `importance` to auto-generate prompt via Gemini
+
+    Returns the generated music file URL.
+    """
+    settings = get_settings()
+
+    if not settings.minimax_api_key:
+        raise HTTPException(
+            status_code=500,
+            detail="MINIMAX_API_KEY not configured"
+        )
+
+    # Generate prompt via Gemini if title/summary provided
+    prompt = request.prompt
+    if request.title and request.summary:
+        prompt = await gemini_service.generate_music_prompt(
+            title=request.title,
+            summary=request.summary,
+            importance=request.importance
+        )
+
+    # Generate music
+    try:
+        clip_name = f"test_music_{generate_job_id()[:8]}"
+        music_path = await minimax_service.generate_instrumental(
+            prompt=prompt,
+            output_path=settings.output_path,
+            clip_name=clip_name
+        )
+
+        return MusicTestResponse(
+            music_url=f"/api/v1/music/{music_path.name}",
+            prompt_used=prompt,
+            filename=music_path.name
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Music generation failed: {str(e)}"
+        )
+
+
+@router.get("/music/{filename}")
+async def download_music(filename: str):
+    """Download a generated music file."""
+    settings = get_settings()
+    music_path = settings.output_path / filename
+
+    if not music_path.exists():
+        raise HTTPException(status_code=404, detail="Music file not found")
+
+    return FileResponse(
+        path=music_path,
+        media_type="audio/mpeg",
+        filename=filename
+    )
+
+
 @router.post("/process", response_model=JobResponse)
 async def process_video(
     background_tasks: BackgroundTasks,
@@ -37,7 +118,8 @@ async def process_video(
     max_clip_duration: float = Form(default=120.0),
     include_captions: bool = Form(default=True),
     caption_style: str = Form(default="default"),
-    caption_mode: str = Form(default="clipper")
+    caption_mode: str = Form(default="clipper"),
+    add_background_music: bool = Form(default=False)
 ):
     """
     Upload a video file and start processing.
@@ -45,6 +127,7 @@ async def process_video(
 
     Caption styles: default, neon, fire, ocean, minimal
     Caption modes: clipper (word-by-word highlight), karaoke (smooth fill)
+    Add background music: AI-generated instrumental using MiniMax
     """
     settings = get_settings()
 
@@ -92,7 +175,8 @@ async def process_video(
         max_clip_duration=max_clip_duration,
         include_captions=include_captions,
         caption_style=caption_style,
-        caption_mode=caption_mode
+        caption_mode=caption_mode,
+        add_background_music=add_background_music
     )
 
     # Start background processing
@@ -166,7 +250,8 @@ async def process_video_from_url(
         max_clip_duration=request.max_clip_duration,
         include_captions=request.include_captions,
         caption_style=request.caption_style,
-        caption_mode=request.caption_mode
+        caption_mode=request.caption_mode,
+        add_background_music=request.add_background_music
     )
 
     # Start background processing with download
@@ -261,8 +346,21 @@ async def get_job_status(job_id: str):
 
 
 @router.get("/jobs/{job_id}/clips/{clip_index}")
-async def download_clip(job_id: str, clip_index: int, captioned: bool = True):
-    """Download a specific clip from a completed job."""
+async def download_clip(
+    job_id: str,
+    clip_index: int,
+    captioned: bool = True,
+    with_music: bool = False
+):
+    """
+    Download a specific clip from a completed job.
+
+    Args:
+        job_id: The job ID
+        clip_index: Index of the clip (0-based)
+        captioned: If True, returns captioned version (default)
+        with_music: If True, returns version with background music (if available)
+    """
     settings = get_settings()
     job = await load_job_status(settings.jobs_path, job_id)
 
@@ -279,7 +377,14 @@ async def download_clip(job_id: str, clip_index: int, captioned: bool = True):
         raise HTTPException(status_code=404, detail="Clip not found")
 
     clip = job.result.clips[clip_index]
-    clip_path = Path(clip.captioned_clip_path if captioned else clip.clip_path)
+
+    # Determine which version to return
+    if with_music and clip.music_clip_path:
+        clip_path = Path(clip.music_clip_path)
+    elif captioned:
+        clip_path = Path(clip.captioned_clip_path)
+    else:
+        clip_path = Path(clip.clip_path)
 
     if not clip_path.exists():
         raise HTTPException(status_code=404, detail="Clip file not found")
@@ -316,6 +421,10 @@ async def delete_job(job_id: str):
                 clip_path.unlink()
             if captioned_path.exists() and captioned_path != clip_path:
                 captioned_path.unlink()
+            if clip.music_clip_path:
+                music_path = Path(clip.music_clip_path)
+                if music_path.exists():
+                    music_path.unlink()
 
     # Job file
     job_file = settings.jobs_path / f"{job_id}.json"

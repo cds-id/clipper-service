@@ -7,6 +7,7 @@ from app.models.schemas import (
 from app.services.ffmpeg_service import ffmpeg_service
 from app.services.transcription import transcription_service
 from app.services.gemini_service import gemini_service
+from app.services.minimax_service import minimax_service
 from app.utils.helpers import (
     save_job_status, update_job_progress, sanitize_filename
 )
@@ -122,10 +123,50 @@ class VideoProcessor:
                             caption_mode=request.caption_mode
                         )
 
+                music_clip_path = None
+
+                # Add background music if requested
+                if request.add_background_music:
+                    await update_job_progress(
+                        jobs_path, job_id, JobStatus.GENERATING_MUSIC, progress + 8,
+                        f"Generating music for clip {i + 1}/{total_clips}..."
+                    )
+
+                    # Generate music prompt based on clip content
+                    music_prompt = await gemini_service.generate_music_prompt(
+                        title=key_point.title,
+                        summary=key_point.summary,
+                        importance=key_point.importance
+                    )
+
+                    # Generate instrumental music
+                    music_path = await minimax_service.generate_instrumental(
+                        prompt=music_prompt,
+                        output_path=output_path,
+                        clip_name=clip_name
+                    )
+
+                    # Mix music with video
+                    await update_job_progress(
+                        jobs_path, job_id, JobStatus.MIXING_AUDIO, progress + 12,
+                        f"Mixing audio for clip {i + 1}/{total_clips}..."
+                    )
+
+                    # Use captioned clip if available, otherwise original clip
+                    video_to_mix = captioned_clip_path if request.include_captions else clip_path
+                    music_clip_path = await ffmpeg_service.mix_audio(
+                        video_path=video_to_mix,
+                        music_path=music_path,
+                        output_path=output_path,
+                        clip_name=clip_name,
+                        music_volume=self.settings.music_volume
+                    )
+
                 clips.append(ClipResult(
                     key_point=key_point,
                     clip_path=str(clip_path),
-                    captioned_clip_path=str(captioned_clip_path)
+                    captioned_clip_path=str(captioned_clip_path),
+                    music_clip_path=str(music_clip_path) if music_clip_path else None
                 ))
 
             # Step 6: Create result

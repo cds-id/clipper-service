@@ -7,6 +7,10 @@ class Settings(BaseSettings):
     # API Keys
     gemini_api_key: str = ""
     hf_token: str = ""
+    minimax_api_key: str = ""
+
+    # Music Settings
+    music_volume: float = 0.3  # Background music volume (0-1)
 
     # Whisper Configuration
     whisper_model_size: str = "base"
