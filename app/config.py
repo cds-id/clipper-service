@@ -27,7 +27,12 @@ class Settings(BaseSettings):
 
     # Processing Settings
     max_video_size_mb: int = 500
+    max_video_duration_min: int = 10  # Max 10 minutes
     allowed_extensions: str = "mp4,mov,avi,mkv,webm"
+
+    @property
+    def max_video_duration_sec(self) -> float:
+        return self.max_video_duration_min * 60
 
     @property
     def upload_path(self) -> Path:

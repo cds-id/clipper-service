@@ -38,6 +38,14 @@ class VideoProcessor:
             )
             video_metadata = await ffmpeg_service.get_video_metadata(video_path)
 
+            # Check video duration limit
+            if video_metadata.duration > self.settings.max_video_duration_sec:
+                max_min = self.settings.max_video_duration_min
+                actual_min = video_metadata.duration / 60
+                raise ValueError(
+                    f"Video too long: {actual_min:.1f} min. Maximum allowed: {max_min} min"
+                )
+
             # Step 2: Extract audio
             await update_job_progress(
                 jobs_path, job_id, JobStatus.EXTRACTING_AUDIO, 15,
