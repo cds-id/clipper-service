@@ -105,22 +105,41 @@ class FFmpegService:
         end_time: float,
         clip_name: str
     ) -> Path:
-        """Trim video to specified time range."""
+        """Trim video to specified time range using GPU if available."""
         output_file = output_path / f"{clip_name}.mp4"
 
+        # Try NVIDIA GPU encoding first, fallback to CPU
         cmd = [
             self.ffmpeg_path,
+            "-hwaccel", "cuda",
+            "-hwaccel_output_format", "cuda",
             "-i", str(video_path),
             "-ss", format_timestamp(start_time),
             "-to", format_timestamp(end_time),
-            "-c:v", "libx264",
+            "-c:v", "h264_nvenc",  # NVIDIA GPU encoder
+            "-preset", "p4",  # Fast preset for NVENC
             "-c:a", "aac",
-            "-preset", "fast",
             "-y",
             str(output_file)
         ]
 
-        subprocess.run(cmd, capture_output=True, check=True)
+        result = subprocess.run(cmd, capture_output=True)
+
+        # Fallback to CPU if GPU encoding fails
+        if result.returncode != 0:
+            cmd = [
+                self.ffmpeg_path,
+                "-i", str(video_path),
+                "-ss", format_timestamp(start_time),
+                "-to", format_timestamp(end_time),
+                "-c:v", "libx264",
+                "-preset", "fast",
+                "-c:a", "aac",
+                "-y",
+                str(output_file)
+            ]
+            subprocess.run(cmd, capture_output=True, check=True)
+
         return output_file
 
     def _split_into_phrases(
@@ -338,21 +357,38 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         output_file = output_path / f"{clip_name}_captioned.mp4"
 
-        # Burn subtitles into video with high quality
+        # Try GPU encoding (subtitle filter needs CPU but encoding can use GPU)
         cmd = [
             self.ffmpeg_path,
             "-i", str(video_path),
             "-vf", f"ass='{str(ass_file)}'",
-            "-c:v", "libx264",
-            "-preset", "medium",
-            "-crf", "18",  # High quality
+            "-c:v", "h264_nvenc",  # NVIDIA GPU encoder
+            "-preset", "p4",
+            "-b:v", "5M",
             "-c:a", "aac",
             "-b:a", "192k",
             "-y",
             str(output_file)
         ]
 
-        subprocess.run(cmd, capture_output=True, check=True)
+        result = subprocess.run(cmd, capture_output=True)
+
+        # Fallback to CPU if GPU fails
+        if result.returncode != 0:
+            cmd = [
+                self.ffmpeg_path,
+                "-i", str(video_path),
+                "-vf", f"ass='{str(ass_file)}'",
+                "-c:v", "libx264",
+                "-preset", "fast",
+                "-crf", "20",
+                "-c:a", "aac",
+                "-b:a", "192k",
+                "-y",
+                str(output_file)
+            ]
+            subprocess.run(cmd, capture_output=True, check=True)
+
         return output_file
 
 
