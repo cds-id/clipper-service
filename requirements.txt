@@ -1,0 +1,21 @@
+# Web Framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
+
+# Transcription (local Whisper)
+faster-whisper>=1.0.0
+
+# AI/ML - Gemini
+google-genai>=1.0.0
+
+# Video Processing
+ffmpeg-python>=0.2.0
+yt-dlp>=2024.0.0
+
+# Utilities
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+python-dotenv>=1.0.0
+aiofiles>=23.0.0
+httpx>=0.27.0
