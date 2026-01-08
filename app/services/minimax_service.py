@@ -40,11 +40,11 @@ class MinimaxService:
             "Content-Type": "application/json"
         }
 
-        # Use [inst] tag for instrumental-only generation
+        # Use instrumental tags for instrumental-only generation (min 10 chars required)
         payload = {
             "model": "music-2.0",
             "prompt": prompt,
-            "lyrics": "[inst]",
+            "lyrics": "[inst]\n[instrumental]\n[outro]",
             "audio_setting": {
                 "sample_rate": 44100,
                 "bitrate": 256000,
